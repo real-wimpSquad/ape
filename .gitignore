@@ -1,0 +1,87 @@
+# Ignore everything by default
+*
+
+# Backups directory
+backups/
+
+# But track these root files
+!.gitignore
+!docker-compose.yml
+!litellm_config.yaml
+!init-postgres.sh
+!migrations/
+!migrations/**
+!.env.example
+!ape.sh
+!ape.bat
+!ape.example.toml
+!README.md
+!EASY_START.md
+!LICENSE
+!Makefile
+
+# Track addon directories and their config files
+!addons/
+!addons/*/
+
+# Track addon config files
+!addons/*/docker-compose*.yml
+!addons/*/README.md
+!addons/*/*.yaml
+
+# Explicitly ignore data directories
+qdrant_data/
+vdb_data/
+postgres_data/
+redis_data/
+qdrant/
+project_vdb/
+
+# Node.js / build artifacts (APEChat)
+addons/apechat/node_modules/
+addons/apechat/.svelte-kit/
+addons/apechat/build/
+addons/apechat/.vite/
+addons/apechat/dist/
+addons/apechat/src/
+addons/apechat/static/
+addons/apechat/package.json
+addons/apechat/pnpm-lock.yaml
+addons/apechat/pnpm-workspace.yaml
+addons/apechat/tsconfig.json
+addons/apechat/vite.config.ts
+addons/apechat/svelte.config.js
+addons/apechat/tailwind.config.js
+addons/apechat/postcss.config.js
+addons/apechat/Dockerfile
+addons/apechat/start.sh
+
+# Ollama models/data
+addons/ollama/models/
+addons/ollama/data/
+
+# Code-thumbs data
+addons/code-thumbs/data/
+
+# Environment files (only .env.example should be tracked)
+.env
+.env.*
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

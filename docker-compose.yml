@@ -1,0 +1,192 @@
+# ============================================================================
+# Copyright 2026 The Atomic Pumpkin Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ============================================================================
+
+# Production docker-compose using pre-built images from GitHub Container Registry
+# Usage: docker-compose -f docker-compose.prod.yml up -d
+
+services:
+  # Qdrant vector database (internal only in production)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    # ports: internal only, accessed via ape-graph
+    volumes:
+      - ./qdrant:/qdrant/storage
+    networks:
+      - atomic_pumpkin
+
+  # APE Engine — single Rust binary serving Bridge, MCP, and Gateway
+  ape-graph:
+    image: ghcr.io/real-wimpsquad/atomic-pumpkin/ape-graph:stable
+    container_name: ape_graph
+    restart: unless-stopped
+    ports:
+      - "50051:50051"  # Bridge API (backward compat + MCP via /mcp)
+      - "8070:8070"    # Gateway (auth, settings, LLM proxy, Grok)
+      - "8071:8071"    # MCP StreamableHTTP (dedicated)
+    environment:
+      # Rust runtime
+      - RUST_LOG=ape_graph=info
+      - TOKIO_WORKER_THREADS=2
+      # Ports
+      - PORT=50051
+      - MCP_PORT=8071
+      - GATEWAY_PORT=8070
+      # Qdrant
+      - QDRANT_URL=http://qdrant:6334
+      - COLLECTION_NAME=vdb
+      # LiteLLM
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      # Redis
+      - REDIS_URL=redis://redis:6379
+      # Databases
+      - DATABASE_URL=postgresql://litellm:litellm_pass@postgres:5432/litellm
+      - APE_DATABASE_URL=postgresql://litellm:litellm_pass@postgres:5432/ape
+      # Auth
+      - JWT_SECRET=${JWT_SECRET}
+      - ADMIN_EMAILS=${ADMIN_EMAILS:-}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - BASE_URL=${BASE_URL:-http://localhost:3080}
+      - OAUTH_BASE_URL=${OAUTH_BASE_URL:-http://localhost:8070}
+      - MCP_URL=${MCP_URL:-http://localhost:8071}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3080,http://localhost:8070}
+      # Email (Resend)
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - FROM_EMAIL=${FROM_EMAIL:-noreply@localhost}
+      # GitHub OAuth
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      # Apeifier (L1/L3 compression pipeline)
+      - APEIFIER_L1_MODEL=${APEIFIER_L1_MODEL:-ollama/ministral-3:3b}
+      - APEIFIER_LLM_MODEL=${APEIFIER_LLM_MODEL:-claude-haiku-4}
+      - APEIFIER_EXEMPLAR_THRESHOLD=${APEIFIER_EXEMPLAR_THRESHOLD:-0.85}
+      # Optional services
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - CODE_THUMBS_ENABLED=${CODE_THUMBS_ENABLED:-false}
+      - CODE_THUMBS_URL=http://code_thumbs_api:8072
+      # Concept-space config (TOML)
+      - APE_CONFIG=/app/ape.toml
+    volumes:
+      - ./ape.toml:/app/ape.toml:ro
+    depends_on:
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - atomic_pumpkin
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8070/health || exit 1"]
+      start_period: 60s
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # Postgres - Multi-database (litellm + ape)
+  postgres:
+    image: postgres:16-alpine
+    container_name: ape_postgres
+    restart: unless-stopped
+    # ports: internal only, not exposed in production
+    environment:
+      - POSTGRES_DB=litellm
+      - POSTGRES_USER=litellm
+      - POSTGRES_PASSWORD=litellm_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-postgres.sh:/docker-entrypoint-initdb.d/init-postgres.sh:ro
+      - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
+    networks:
+      - atomic_pumpkin
+    shm_size: 256mb
+    stop_grace_period: 30s
+    command:
+      - postgres
+      - -c
+      - checkpoint_timeout=60
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - synchronous_commit=on
+      - -c
+      - shared_buffers=128MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Redis - caching, context stash, session verbatim (internal only)
+  redis:
+    image: redis:7-alpine
+    container_name: ape_redis
+    restart: unless-stopped
+    # ports: internal only, not exposed in production
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --appendfsync everysec --save 60 1
+    networks:
+      - atomic_pumpkin
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # LiteLLM - Unified provider proxy (internal only, accessed via ape-graph)
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: ape_litellm
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - DATABASE_URL=postgresql://litellm:litellm_pass@postgres:5432/litellm
+      - STORE_MODEL_IN_DB=True
+      - OLLAMA_API_URL=${OLLAMA_API_URL:-http://host.docker.internal:11434}
+      - OLLAMA_API_BASE=${OLLAMA_API_URL:-http://host.docker.internal:11434}
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - atomic_pumpkin
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/readiness', timeout=5).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  atomic_pumpkin:
+    driver: bridge

@@ -1,0 +1,114 @@
+# ============================================================================
+# LiteLLM Configuration for Atomic Pumpkin
+# Server-level models (latest from major providers)
+# Users can add their own models via Settings → Models
+# ============================================================================
+
+model_list:
+  # ==================== Anthropic Models ====================
+  # Claude Sonnet 4 - Primary reasoning model
+  - model_name: claude-sonnet-4
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+
+  # Claude Opus 4 - Most capable model
+  - model_name: claude-opus-4
+    litellm_params:
+      model: anthropic/claude-opus-4-20250514
+
+  # Claude Haiku 4 - Fast, efficient model
+  - model_name: claude-haiku-4
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+
+  # ==================== OpenAI Models ====================
+  # GPT-4o - Primary multimodal model
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+
+  # GPT-4o mini - Fast, efficient model
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+
+  # O1 - Advanced reasoning model
+  - model_name: o1
+    litellm_params:
+      model: openai/o1
+
+  # O1 mini - Reasoning model (smaller)
+  - model_name: o1-mini
+    litellm_params:
+      model: openai/o1-mini
+
+  # ==================== Ollama (Local) ====================
+  # L1 compression model for APE-ifier pipeline
+  - model_name: ollama/ministral-3:3b
+    litellm_params:
+      model: ollama/ministral-3:3b
+
+  # Monitor (343 Guilty Spark) — write quality gate
+  - model_name: ollama/gemma3:4b
+    litellm_params:
+      model: ollama/gemma3:4b
+
+  # L3 teacher / answer generation (local alternative to claude-haiku-4)
+  - model_name: ollama/gemma3:12b
+    litellm_params:
+      model: ollama/gemma3:12b
+
+  # ==================== Gemini (Optional) ====================
+  # Uncomment and add GEMINI_API_KEY to enable
+  # - model_name: gemini-2.0-flash
+  #   litellm_params:
+  #     model: gemini/gemini-2.0-flash-exp
+  #     api_key: os.environ/GEMINI_API_KEY
+
+# ============================================================================
+# LiteLLM Settings
+# ============================================================================
+
+litellm_settings:
+  # Drop unsupported params instead of erroring
+  drop_params: true
+
+  # Telemetry
+  telemetry: false
+
+  # Redis caching
+  cache_params:
+    type: redis
+    host: redis
+    port: 6379
+    ttl: 3600  # 1 hour cache
+
+  # Fallback strategy (per-model fallback chains)
+  fallbacks:
+    - claude-sonnet-4: [gpt-4o, claude-haiku-4]
+    - gpt-4o: [claude-sonnet-4, gpt-4o-mini]
+
+  # Router settings (load balancing)
+  router_settings:
+    routing_strategy: least-busy
+    enable_pre_call_checks: true
+    num_retries: 3
+    timeout: 120  # 2 minutes
+    retry_after: 5
+
+  # Logging
+  set_verbose: false
+
+# ============================================================================
+# General Settings
+# ============================================================================
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: postgresql://litellm:litellm_pass@postgres:5432/litellm
+  allow_client_side_credentials: true
+
+  # Rate limits per model (requests/min)
+  # model_max_budget:
+  #   claude-sonnet-4: 100
+  #   gpt-4o: 100
