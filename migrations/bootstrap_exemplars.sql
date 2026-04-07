@@ -1,0 +1,35 @@
+-- Bootstrap exemplars for quality voting and amend categorization.
+-- These are seeded into the VDB (Qdrant) at startup if not already present.
+-- They are excluded from normal search results via tag-based filtering.
+--
+-- This SQL file documents the exemplars for reference.
+-- Actual seeding is done in Rust via add_pipeline.add() at startup.
+
+-- Quality vote tier exemplars (tag: vote_quality_exemplar)
+-- t5: causality_chain→root_cause→improvement_path
+-- t5: duplicate→canonical_version→merge_suggestion
+-- t4: outdated→newer_source→replacement_link
+-- t4: verbose→compressed_equivalent→efficiency_gain
+-- t5: incorrect_info→corrected_version→source_cited
+-- t3: low_value→specific_reason→pattern_identified
+-- t2: token_hog→efficiency_issue
+-- t1: unhelpful
+-- t0: bad
+-- t0: wrong
+-- t0: user_asked
+
+-- Amend category exemplars (tag: amend_category_exemplar)
+-- MISCONCEPTION: factually_wrong_belief→contradicts_verified_source
+-- MISCONCEPTION: based_on_incorrect_assumption→reasoning_flawed
+-- HALLUCINATION: fabricated_details→no_source_exists→invented
+-- HALLUCINATION: made_up_API→nonexistent_method→hallucinated
+-- OUTDATED: previously_correct→version_updated→now_obsolete
+-- OUTDATED: old_syntax→deprecated→replacement_available
+-- INCORRECT: incorrect_value→verified_wrong→correction_provided
+-- INCORRECT: wrong_calculation→math_error→corrected
+-- VERBOSE: token_bloat→unnecessarily_verbose→compressed_better
+-- VERBOSE: prose_instead_of_semantic_arrows→inefficient
+-- DUPLICATE: exact_duplicate→already_exists→merge_needed
+-- DUPLICATE: redundant_with_existing→consolidate
+-- UNCLEAR: ambiguous_phrasing→unclear_intent→clarified
+-- UNCLEAR: confusing_structure→hard_to_parse→reformatted

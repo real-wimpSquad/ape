@@ -144,7 +144,7 @@ if not "!EXIT_CODE!"=="0" (
     echo   Things to try:
     echo     - Make sure Docker Desktop is running (check your taskbar^)
     echo     - Try double-clicking this file again
-    echo     - See the README or open an issue on GitHub
+    echo     - Ask Jon :^)
 )
 
 echo.

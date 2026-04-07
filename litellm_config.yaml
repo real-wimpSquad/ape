@@ -47,11 +47,13 @@ model_list:
   - model_name: ollama/ministral-3:3b
     litellm_params:
       model: ollama/ministral-3:3b
+      api_base: os.environ/OLLAMA_API_BASE
 
-  # Monitor (343 Guilty Spark) — write quality gate
+  # Write quality gate (local)
   - model_name: ollama/gemma3:4b
     litellm_params:
       model: ollama/gemma3:4b
+      api_base: os.environ/OLLAMA_API_BASE
 
   # L3 teacher / answer generation (local alternative to claude-haiku-4)
   - model_name: ollama/gemma3:12b
@@ -105,7 +107,7 @@ litellm_settings:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
-  database_url: postgresql://litellm:litellm_pass@postgres:5432/litellm
+  database_url: os.environ/DATABASE_URL
   allow_client_side_credentials: true
 
   # Rate limits per model (requests/min)

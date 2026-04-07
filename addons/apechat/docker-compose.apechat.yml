@@ -1,5 +1,5 @@
 # ============================================================================
-# Copyright 2026 The Atomic Pumpkin Authors
+# Copyright 2026 Jon Sherlin (real-wimpSquad)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ services:
     container_name: ape_ui
     restart: unless-stopped
     ports:
-      - "3080:3000"
+      - "3080:3000"  # External 3080 (CloudFlare) -> Internal 3000
     environment:
       - NODE_ENV=production
       - ORIGIN=http://127.0.0.1:3080

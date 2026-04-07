@@ -1,5 +1,5 @@
 # ============================================================================
-# Copyright 2026 The Atomic Pumpkin Authors
+# Copyright 2026 Jon Sherlin (real-wimpSquad)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -61,13 +61,13 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - ADMIN_EMAILS=${ADMIN_EMAILS:-}
       - ENVIRONMENT=${ENVIRONMENT:-production}
-      - BASE_URL=${BASE_URL:-http://localhost:3080}
-      - OAUTH_BASE_URL=${OAUTH_BASE_URL:-http://localhost:8070}
-      - MCP_URL=${MCP_URL:-http://localhost:8071}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3080,http://localhost:8070}
+      - BASE_URL=${BASE_URL:-https://chat.wimps.win}
+      - OAUTH_BASE_URL=${OAUTH_BASE_URL:-https://auth.wimps.win}
+      - MCP_URL=${MCP_URL:-https://mcp.wimps.win}
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://ape.wimps.win,https://chat.wimps.win}
       # Email (Resend)
       - RESEND_API_KEY=${RESEND_API_KEY:-}
-      - FROM_EMAIL=${FROM_EMAIL:-noreply@localhost}
+      - FROM_EMAIL=${FROM_EMAIL:-accounts@ape.wimps.win}
       # GitHub OAuth
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
@@ -155,8 +155,7 @@ services:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: ape_litellm
     restart: unless-stopped
-    ports:
-      - "4000:4000"
+    # ports: internal only, ape-graph is sole entry point
     volumes:
       - ./litellm_config.yaml:/app/config.yaml
     environment:
