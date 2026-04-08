@@ -39,46 +39,31 @@ services:
       - "8070:8070"    # Gateway (auth, settings, LLM proxy, Grok)
       - "8071:8071"    # MCP StreamableHTTP (dedicated)
     environment:
-      # Rust runtime
+      # --- Infra wiring (container network addresses + runtime) ---
       - RUST_LOG=ape_graph=info
       - TOKIO_WORKER_THREADS=2
-      # Ports
       - PORT=50051
       - MCP_PORT=8071
       - GATEWAY_PORT=8070
-      # Qdrant
       - QDRANT_URL=http://qdrant:6334
       - COLLECTION_NAME=vdb
-      # LiteLLM
       - LITELLM_URL=http://litellm:4000
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
-      # Redis
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-ape-internal-litellm-key}
       - REDIS_URL=redis://redis:6379
-      # Databases
       - DATABASE_URL=postgresql://litellm:litellm_pass@postgres:5432/litellm
       - APE_DATABASE_URL=postgresql://litellm:litellm_pass@postgres:5432/ape
-      # Auth
-      - JWT_SECRET=${JWT_SECRET}
-      - ADMIN_EMAILS=${ADMIN_EMAILS:-}
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      - BASE_URL=${BASE_URL:-https://chat.wimps.win}
-      - OAUTH_BASE_URL=${OAUTH_BASE_URL:-https://auth.wimps.win}
-      - MCP_URL=${MCP_URL:-https://mcp.wimps.win}
-      - CORS_ORIGINS=${CORS_ORIGINS:-https://ape.wimps.win,https://chat.wimps.win}
-      # Email (Resend)
-      - RESEND_API_KEY=${RESEND_API_KEY:-}
-      - FROM_EMAIL=${FROM_EMAIL:-accounts@ape.wimps.win}
-      # GitHub OAuth
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
-      # Apeifier (L1/L3 compression pipeline)
-      - APEIFIER_L1_MODEL=${APEIFIER_L1_MODEL:-ollama/ministral-3:3b}
-      - APEIFIER_LLM_MODEL=${APEIFIER_LLM_MODEL:-claude-haiku-4}
-      - APEIFIER_EXEMPLAR_THRESHOLD=${APEIFIER_EXEMPLAR_THRESHOLD:-0.85}
-      # Optional services
-      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
-      - CODE_THUMBS_ENABLED=${CODE_THUMBS_ENABLED:-false}
       - CODE_THUMBS_URL=http://code_thumbs_api:8072
+      # Shelve model (context compression): SHELVE_MODEL → APEIFIER_LLM_MODEL → claude-haiku-4
+      # Set to ollama/* for local: e.g. ollama/gemma3:4b
+      # - SHELVE_MODEL=ollama/gemma3:4b
+      # --- Everything else auto-bootstraps from DB ---
+      # JWT_SECRET, ENCRYPTION_KEY: auto-generated + persisted on first run
+      # BASE_URL, ENVIRONMENT, CORS_ORIGINS: Admin > Site Settings
+      # API keys (Anthropic, OpenAI, etc.): Admin > Server Keys
+      # GitHub OAuth, Resend email: Admin > Site Settings
+      # Apeifier models: Admin > Site Settings
+      # Override via env var if needed (env takes priority over DB):
+      - ENVIRONMENT=${ENVIRONMENT:-production}
       # Concept-space config (TOML)
       - APE_CONFIG=/app/ape.toml
     volumes:
@@ -159,10 +144,12 @@ services:
     volumes:
       - ./litellm_config.yaml:/app/config.yaml
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # API keys passed per-request by ape-graph (allow_client_side_credentials=true)
+      # Set here only as fallback for direct LiteLLM usage outside of ape-graph.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-ape-internal-litellm-key}
       - DATABASE_URL=postgresql://litellm:litellm_pass@postgres:5432/litellm
       - STORE_MODEL_IN_DB=True
       - OLLAMA_API_URL=${OLLAMA_API_URL:-http://host.docker.internal:11434}
