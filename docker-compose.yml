@@ -53,7 +53,7 @@ services:
       - TOKIO_WORKER_THREADS=2
       - APE_CONFIG=/app/ape.toml
     volumes:
-      - ./ape.toml:/app/ape.toml:ro
+      - ./ape.toml:/app/ape.toml
       - ape_data:/app/data
       - ./models:/models:ro
     depends_on:

@@ -108,6 +108,7 @@ backup:
 	echo "Creating backup: $$BACKUP_FILE"; \
 	tar --exclude='./backups' \
 		--exclude='./.git' \
+		--exclude='./models' \
 		--exclude='*.log' \
 		-czf "$$BACKUP_FILE" .; \
 	echo "Backup created: $$BACKUP_FILE"; \
