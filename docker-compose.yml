@@ -23,57 +23,57 @@ services:
     image: qdrant/qdrant:latest
     container_name: qdrant
     restart: unless-stopped
-    # ports: internal only, accessed via ape-graph
+    # To enable Qdrant auth, set an API key here and add qdrant_api_key to
+    # the matching concept space in ape.toml
+    # environment:
+    #   - QDRANT__SERVICE__API_KEY=your-qdrant-api-key
     volumes:
       - ./qdrant:/qdrant/storage
     networks:
       - atomic_pumpkin
 
-  # APE Engine — single Rust binary serving Bridge, MCP, and Gateway
-  ape-graph:
-    image: ghcr.io/real-wimpsquad/atomic-pumpkin/ape-graph:stable
-    container_name: ape_graph
+  # TLS reverse proxy — terminates HTTPS, forwards to APE gateway
+  # Place your certs in ./certs/ (tls.crt + tls.key) or use self-signed:
+  #   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  #     -keyout certs/tls.key -out certs/tls.crt -subj '/CN=ape.local'
+  caddy:
+    image: caddy:2-alpine
+    container_name: ape_caddy
     restart: unless-stopped
     ports:
-      - "50051:50051"  # Bridge API (backward compat + MCP via /mcp)
-      - "8070:8070"    # Gateway (auth, settings, LLM proxy, Grok)
-      - "8071:8071"    # MCP StreamableHTTP (dedicated)
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+    depends_on:
+      ape:
+        condition: service_healthy
+    networks:
+      - atomic_pumpkin
+
+  # APE Engine — single Rust binary serving Bridge, MCP, and Gateway
+  ape:
+    image: ghcr.io/real-wimpsquad/atomic-pumpkin/ape:stable
+    container_name: ape
+    restart: unless-stopped
+    stop_grace_period: 35s
+    # No host ports exposed — Caddy handles external traffic
+    # Uncomment for direct access (debugging only):
+    # ports:
+    #   - "8070:8070"
     environment:
-      # --- Infra wiring (container network addresses + runtime) ---
-      - RUST_LOG=ape_graph=info
+      - RUST_LOG=ape=info
       - TOKIO_WORKER_THREADS=2
-      - PORT=50051
-      - MCP_PORT=8071
-      - GATEWAY_PORT=8070
-      - QDRANT_URL=http://qdrant:6334
-      - COLLECTION_NAME=vdb
-      - LITELLM_URL=http://litellm:4000
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-ape-internal-litellm-key}
-      - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql://litellm:litellm_pass@postgres:5432/litellm
-      - APE_DATABASE_URL=postgresql://litellm:litellm_pass@postgres:5432/ape
-      - CODE_THUMBS_URL=http://code_thumbs_api:8072
-      # Shelve model (context compression): SHELVE_MODEL → APEIFIER_LLM_MODEL → claude-haiku-4
-      # Set to ollama/* for local: e.g. ollama/gemma3:4b
-      # - SHELVE_MODEL=ollama/gemma3:4b
-      # --- Everything else auto-bootstraps from DB ---
-      # JWT_SECRET, ENCRYPTION_KEY: auto-generated + persisted on first run
-      # BASE_URL, ENVIRONMENT, CORS_ORIGINS: Admin > Site Settings
-      # API keys (Anthropic, OpenAI, etc.): Admin > Server Keys
-      # GitHub OAuth, Resend email: Admin > Site Settings
-      # Apeifier models: Admin > Site Settings
-      # Override via env var if needed (env takes priority over DB):
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      # Concept-space config (TOML)
       - APE_CONFIG=/app/ape.toml
     volumes:
       - ./ape.toml:/app/ape.toml:ro
+      - ape_data:/app/data
     depends_on:
       qdrant:
         condition: service_started
       redis:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
     networks:
       - atomic_pumpkin
@@ -84,48 +84,15 @@ services:
       timeout: 5s
       retries: 5
 
-  # Postgres - Multi-database (litellm + ape)
-  postgres:
-    image: postgres:16-alpine
-    container_name: ape_postgres
-    restart: unless-stopped
-    # ports: internal only, not exposed in production
-    environment:
-      - POSTGRES_DB=litellm
-      - POSTGRES_USER=litellm
-      - POSTGRES_PASSWORD=litellm_pass
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-postgres.sh:/docker-entrypoint-initdb.d/init-postgres.sh:ro
-      - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
-    networks:
-      - atomic_pumpkin
-    shm_size: 256mb
-    stop_grace_period: 30s
-    command:
-      - postgres
-      - -c
-      - checkpoint_timeout=60
-      - -c
-      - checkpoint_completion_target=0.9
-      - -c
-      - synchronous_commit=on
-      - -c
-      - shared_buffers=128MB
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U litellm"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
-  # Redis - caching, context stash, session verbatim (internal only)
+  # Redis — caching, context stash, session verbatim (internal only)
   redis:
     image: redis:7-alpine
     container_name: ape_redis
     restart: unless-stopped
-    # ports: internal only, not exposed in production
     volumes:
       - redis_data:/data
+    # To enable Redis auth, set requirepass here and update redis_url in ape.toml
+    # to redis://:yourpassword@redis:6379
     command: redis-server --appendonly yes --appendfsync everysec --save 60 1
     networks:
       - atomic_pumpkin
@@ -135,43 +102,10 @@ services:
       timeout: 3s
       retries: 3
 
-  # LiteLLM - Unified provider proxy (internal only, accessed via ape-graph)
-  litellm:
-    image: ghcr.io/berriai/litellm:main-latest
-    container_name: ape_litellm
-    restart: unless-stopped
-    # ports: internal only, ape-graph is sole entry point
-    volumes:
-      - ./litellm_config.yaml:/app/config.yaml
-    environment:
-      # API keys passed per-request by ape-graph (allow_client_side_credentials=true)
-      # Set here only as fallback for direct LiteLLM usage outside of ape-graph.
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-ape-internal-litellm-key}
-      - DATABASE_URL=postgresql://litellm:litellm_pass@postgres:5432/litellm
-      - STORE_MODEL_IN_DB=True
-      - OLLAMA_API_URL=${OLLAMA_API_URL:-http://host.docker.internal:11434}
-      - OLLAMA_API_BASE=${OLLAMA_API_URL:-http://host.docker.internal:11434}
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - atomic_pumpkin
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/readiness', timeout=5).read()"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-
 volumes:
-  postgres_data:
+  ape_data:
   redis_data:
+  caddy_data:
 
 networks:
   atomic_pumpkin:

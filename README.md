@@ -1,6 +1,6 @@
 # Atomic Pumpkin v11
 
-**A simple, robust, enterprise-ready, persistent memory substrate for agentic LLM users.**
+**Working towards a manageable, robust, persistent memory substrate for agentic LLM users with enterprise in mind.**
 
 *Patent Pending*
 

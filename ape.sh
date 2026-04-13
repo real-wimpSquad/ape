@@ -755,6 +755,436 @@ do_list() {
 }
 
 # ==========================================================================
+# Backup & Restore
+# ==========================================================================
+
+BACKUP_DIR="$SCRIPT_DIR/backups"
+BACKUP_VERSION="1"
+
+do_backup() {
+    local cron_mode=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --cron) cron_mode=1; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    hdr "Backup"
+    echo ""
+
+    # Verify services are running (we need the container for SQLite copy)
+    if ! docker ps --format '{{.Names}}' | grep -q '^ape$'; then
+        err "APE container is not running. Start it first: ./ape.sh start"
+        return 1
+    fi
+
+    local timestamp
+    timestamp=$(date -u +%Y%m%d-%H%M%S)
+    local backup_name="ape-backup-${timestamp}"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local workdir="$tmpdir/$backup_name"
+    mkdir -p "$workdir"
+
+    # --- 1. SQLite database ---
+    echo -n "  Copying SQLite database... "
+    if docker cp ape:/app/data/. "$workdir/data/" 2>/dev/null; then
+        ok "done"
+    else
+        err "failed to copy SQLite data"
+        rm -rf "$tmpdir"
+        return 1
+    fi
+
+    # --- 2. Qdrant data ---
+    # Qdrant uses a bind mount at ./qdrant/ — snapshot via API if reachable,
+    # otherwise direct directory copy.
+    echo -n "  Snapshotting Qdrant... "
+    local qdrant_api=""
+
+    # Try host-exposed ports first (dev mode)
+    if curl -sf "http://localhost:6334/collections" &>/dev/null; then
+        qdrant_api="http://localhost:6334"
+    elif curl -sf "http://localhost:6333/collections" &>/dev/null; then
+        qdrant_api="http://localhost:6333"
+    fi
+
+    mkdir -p "$workdir/qdrant"
+    if [ -n "$qdrant_api" ]; then
+        # API-based snapshot (consistent while running)
+        local collections
+        collections=$(curl -sf "$qdrant_api/collections" | sed -n 's/.*"name":"\([^"]*\)".*/\1/gp' | tr ',' '\n' | sort -u)
+        local snap_ok=1
+        for coll in $collections; do
+            local snap_resp
+            snap_resp=$(curl -sf -X POST "$qdrant_api/collections/$coll/snapshots" 2>/dev/null)
+            local snap_name
+            snap_name=$(echo "$snap_resp" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')
+            if [ -n "$snap_name" ]; then
+                curl -sf "$qdrant_api/collections/$coll/snapshots/$snap_name" \
+                    -o "$workdir/qdrant/${coll}.snapshot" 2>/dev/null || snap_ok=0
+                # Clean up snapshot on server
+                curl -sf -X DELETE "$qdrant_api/collections/$coll/snapshots/$snap_name" &>/dev/null
+            else
+                snap_ok=0
+            fi
+        done
+        if [ "$snap_ok" = "1" ] && [ -n "$collections" ]; then
+            ok "done (API snapshot, $(echo "$collections" | wc -w | tr -d ' ') collections)"
+        else
+            warn "API snapshot partial — falling back to directory copy"
+            rm -rf "$workdir/qdrant"
+            if [ -d "$SCRIPT_DIR/qdrant" ]; then
+                cp -r "$SCRIPT_DIR/qdrant" "$workdir/qdrant"
+                ok "done (directory copy)"
+            else
+                warn "no Qdrant data directory found"
+            fi
+        fi
+    elif [ -d "$SCRIPT_DIR/qdrant" ]; then
+        # Direct copy fallback (Qdrant ports not exposed — production mode)
+        cp -r "$SCRIPT_DIR/qdrant" "$workdir/qdrant"
+        ok "done (directory copy)"
+    else
+        warn "no Qdrant data found — skipping"
+    fi
+
+    # --- 3. Config ---
+    echo -n "  Copying configuration... "
+    if [ -f "$SCRIPT_DIR/ape.toml" ]; then
+        cp "$SCRIPT_DIR/ape.toml" "$workdir/ape.toml"
+        ok "done"
+    else
+        warn "no ape.toml found"
+    fi
+
+    # --- 4. Encryption key export ---
+    echo -n "  Exporting encryption key... "
+    local key_exported=0
+    local raw_key=""
+
+    # Extract key from the copied SQLite DB
+    if command -v sqlite3 &>/dev/null; then
+        raw_key=$(sqlite3 "$workdir/data/ape.db" \
+            "SELECT value FROM ape_settings WHERE key = 'encryption_key';" 2>/dev/null || true)
+    fi
+
+    if [ -n "$raw_key" ]; then
+        if [ "$cron_mode" = "1" ]; then
+            # Cron mode: store key as-is (the whole archive should be on encrypted storage)
+            echo "$raw_key" > "$workdir/encryption_key.txt"
+            ok "done (unencrypted — cron mode)"
+            key_exported=1
+        else
+            # Interactive: encrypt with operator passphrase
+            echo ""
+            echo ""
+            echo -e "  ${Y}The encryption key protects API keys and OAuth tokens.${N}"
+            echo -e "  ${Y}Enter a passphrase to protect this key in the backup.${N}"
+            echo ""
+            local passphrase=""
+            local confirm=""
+            while true; do
+                read -rsp "  Passphrase: " passphrase; echo ""
+                if [ -z "$passphrase" ]; then
+                    warn "Empty passphrase — storing key unencrypted"
+                    echo "$raw_key" > "$workdir/encryption_key.txt"
+                    key_exported=1
+                    break
+                fi
+                read -rsp "  Confirm:    " confirm; echo ""
+                if [ "$passphrase" = "$confirm" ]; then
+                    echo "$raw_key" | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 \
+                        -pass "pass:$passphrase" -out "$workdir/encryption_key.enc" 2>/dev/null
+                    if [ $? -eq 0 ]; then
+                        ok "done (AES-256-CBC encrypted)"
+                        key_exported=1
+                    else
+                        err "openssl encryption failed — storing unencrypted"
+                        echo "$raw_key" > "$workdir/encryption_key.txt"
+                        key_exported=1
+                    fi
+                    break
+                else
+                    warn "Passphrases don't match. Try again."
+                fi
+            done
+        fi
+    else
+        warn "could not extract encryption key (sqlite3 not available or key not found)"
+        echo "  The key is still inside ape.db — a full restore will recover it."
+    fi
+
+    # --- 5. Manifest ---
+    local ape_version
+    ape_version=$(curl -sf "http://localhost:8070/health" 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' || echo "unknown")
+    local db_size
+    db_size=$(du -sh "$workdir/data/ape.db" 2>/dev/null | cut -f1 || echo "unknown")
+    local qdrant_size
+    qdrant_size=$(du -sh "$workdir/qdrant" 2>/dev/null | cut -f1 || echo "unknown")
+
+    cat > "$workdir/manifest.json" <<EOF
+{
+  "backup_version": "$BACKUP_VERSION",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "ape_version": "$ape_version",
+  "contents": {
+    "sqlite": true,
+    "qdrant": $([ -d "$workdir/qdrant" ] && echo "true" || echo "false"),
+    "config": $([ -f "$workdir/ape.toml" ] && echo "true" || echo "false"),
+    "encryption_key": $key_exported
+  },
+  "sizes": {
+    "sqlite": "$db_size",
+    "qdrant": "$qdrant_size"
+  }
+}
+EOF
+
+    # --- 6. Package ---
+    echo -n "  Creating archive... "
+    mkdir -p "$BACKUP_DIR"
+    local archive="$BACKUP_DIR/${backup_name}.tar.gz"
+    tar -czf "$archive" -C "$tmpdir" "$backup_name" 2>/dev/null
+    rm -rf "$tmpdir"
+
+    local archive_size
+    archive_size=$(du -sh "$archive" 2>/dev/null | cut -f1 || echo "unknown")
+    ok "done"
+
+    # --- 7. Retention (cron mode only) ---
+    if [ "$cron_mode" = "1" ]; then
+        local deleted=0
+        while IFS= read -r old_backup; do
+            [ -f "$old_backup" ] || continue
+            rm -f "$old_backup"
+            ((deleted++))
+        done < <(find "$BACKUP_DIR" -name "ape-backup-*.tar.gz" -mtime +30 2>/dev/null)
+        if [ "$deleted" -gt 0 ]; then
+            ok "Pruned $deleted backups older than 30 days"
+        fi
+    fi
+
+    # --- 8. Write last-backup metadata (for UI) ---
+    # Persist to SQLite via the container so the admin dashboard can show backup status
+    local backup_ts
+    backup_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    local backup_file
+    backup_file=$(basename "$archive")
+    docker exec ape sqlite3 /app/data/ape.db "
+        INSERT INTO ape_settings (key, value, encrypted, updated_at)
+        VALUES ('last_backup_timestamp', '$backup_ts', 0, datetime('now'))
+        ON CONFLICT (key) DO UPDATE SET value = '$backup_ts', updated_at = datetime('now');
+        INSERT INTO ape_settings (key, value, encrypted, updated_at)
+        VALUES ('last_backup_size', '$archive_size', 0, datetime('now'))
+        ON CONFLICT (key) DO UPDATE SET value = '$archive_size', updated_at = datetime('now');
+        INSERT INTO ape_settings (key, value, encrypted, updated_at)
+        VALUES ('last_backup_file', '$backup_file', 0, datetime('now'))
+        ON CONFLICT (key) DO UPDATE SET value = '$backup_file', updated_at = datetime('now');
+    " 2>/dev/null || true
+
+    echo ""
+    echo -e "  ${G}Backup complete!${N}"
+    echo ""
+    echo "    Archive:  $archive"
+    echo "    Size:     $archive_size"
+    echo "    Contains: SQLite DB ($db_size) + Qdrant ($qdrant_size) + config"
+    if [ "$key_exported" = "1" ]; then
+        echo "    Key:      exported ($([ -f "$workdir/encryption_key.enc" ] && echo "encrypted" || echo "plaintext"))"
+    else
+        echo "    Key:      embedded in ape.db (not separately exported)"
+    fi
+    echo ""
+    echo "  Restore with: ./ape.sh restore $archive"
+    echo ""
+}
+
+do_restore() {
+    local archive="${1:-}"
+
+    if [ -z "$archive" ]; then
+        # Try to find most recent backup
+        if [ -d "$BACKUP_DIR" ]; then
+            archive=$(ls -t "$BACKUP_DIR"/ape-backup-*.tar.gz 2>/dev/null | head -1)
+        fi
+        if [ -z "$archive" ]; then
+            err "Usage: ./ape.sh restore <archive.tar.gz>"
+            echo ""
+            echo "  No backup archive specified and no backups found in $BACKUP_DIR/"
+            return 1
+        fi
+        echo ""
+        warn "No archive specified — using most recent: $(basename "$archive")"
+    fi
+
+    if [ ! -f "$archive" ]; then
+        err "File not found: $archive"
+        return 1
+    fi
+
+    hdr "Restore from backup"
+    echo ""
+
+    # Extract to temp dir and read manifest
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    tar -xzf "$archive" -C "$tmpdir" 2>/dev/null
+    local workdir
+    workdir=$(find "$tmpdir" -maxdepth 1 -type d -name "ape-backup-*" | head -1)
+
+    if [ -z "$workdir" ] || [ ! -f "$workdir/manifest.json" ]; then
+        err "Invalid backup archive — no manifest found."
+        rm -rf "$tmpdir"
+        return 1
+    fi
+
+    # Show manifest
+    echo -e "  ${B}Backup contents:${N}"
+    echo ""
+    local ts ver
+    ts=$(sed -n 's/.*"timestamp": *"\([^"]*\)".*/\1/p' "$workdir/manifest.json")
+    ver=$(sed -n 's/.*"ape_version": *"\([^"]*\)".*/\1/p' "$workdir/manifest.json")
+    local sq_size qd_size
+    sq_size=$(sed -n 's/.*"sqlite": *"\([^"]*\)".*/\1/p' "$workdir/manifest.json")
+    qd_size=$(sed -n 's/.*"qdrant": *"\([^"]*\)".*/\1/p' "$workdir/manifest.json")
+    echo "    Date:       $ts"
+    echo "    APE version: $ver"
+    echo "    SQLite:     $sq_size"
+    echo "    Qdrant:     $qd_size"
+    [ -f "$workdir/ape.toml" ]           && echo "    Config:     ape.toml"
+    [ -f "$workdir/encryption_key.enc" ] && echo "    Key:        encrypted (passphrase required)"
+    [ -f "$workdir/encryption_key.txt" ] && echo "    Key:        plaintext"
+    echo ""
+
+    echo -e "  ${R}WARNING: This will REPLACE all current data.${N}"
+    echo ""
+    read -rp "  Type 'restore' to confirm: " confirm
+    if [ "$confirm" != "restore" ]; then
+        echo "  Cancelled."
+        rm -rf "$tmpdir"
+        return 0
+    fi
+    echo ""
+
+    # --- Decrypt encryption key if needed ---
+    if [ -f "$workdir/encryption_key.enc" ]; then
+        echo -n "  Decrypting encryption key... "
+        read -rsp "Passphrase: " passphrase; echo ""
+        local decrypted_key
+        decrypted_key=$(openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
+            -pass "pass:$passphrase" -in "$workdir/encryption_key.enc" 2>/dev/null)
+        if [ $? -ne 0 ] || [ -z "$decrypted_key" ]; then
+            err "Wrong passphrase or corrupted key file."
+            echo "  The encryption key is also inside the SQLite DB."
+            echo "  If you proceed, existing encrypted data will still be accessible"
+            echo "  as long as the key in the DB is intact."
+            echo ""
+            read -rp "  Continue anyway? (y/N): " cont
+            if [[ "$(lower "$cont")" != "y" ]]; then
+                rm -rf "$tmpdir"
+                return 1
+            fi
+        else
+            ok "done"
+        fi
+    fi
+
+    # --- Stop services ---
+    echo -n "  Stopping services... "
+    local cmd
+    cmd=$(compose_cmd)
+    $cmd stop &>/dev/null
+    ok "done"
+
+    # --- Restore SQLite ---
+    if [ -d "$workdir/data" ]; then
+        echo -n "  Restoring SQLite database... "
+        # Remove existing data from volume, then copy new
+        docker run --rm -v ape_data:/app/data debian:bookworm-slim \
+            sh -c "rm -rf /app/data/*" 2>/dev/null
+        # Use a temp container to copy data into the volume
+        local copy_container
+        copy_container=$(docker create -v ape_data:/app/data debian:bookworm-slim true)
+        docker cp "$workdir/data/." "$copy_container:/app/data/" 2>/dev/null
+        docker rm "$copy_container" &>/dev/null
+        ok "done"
+    fi
+
+    # --- Restore Qdrant ---
+    if [ -d "$workdir/qdrant" ]; then
+        echo -n "  Restoring Qdrant data... "
+
+        # Check if backup contains snapshots (API backup) or raw data (directory copy)
+        local has_snapshots=0
+        ls "$workdir/qdrant/"*.snapshot &>/dev/null && has_snapshots=1
+
+        if [ "$has_snapshots" = "1" ]; then
+            # Snapshot-based restore: need Qdrant running
+            # Start just Qdrant, restore snapshots, then stop
+            warn "snapshot restore requires Qdrant — starting it temporarily"
+            $cmd up -d qdrant &>/dev/null
+            sleep 3
+
+            local qdrant_api=""
+            if curl -sf "http://localhost:6334/collections" &>/dev/null; then
+                qdrant_api="http://localhost:6334"
+            elif curl -sf "http://localhost:6333/collections" &>/dev/null; then
+                qdrant_api="http://localhost:6333"
+            fi
+
+            if [ -n "$qdrant_api" ]; then
+                for snap_file in "$workdir/qdrant/"*.snapshot; do
+                    local coll_name
+                    coll_name=$(basename "$snap_file" .snapshot)
+                    # Upload snapshot to restore the collection
+                    curl -sf -X POST "$qdrant_api/collections/$coll_name/snapshots/upload" \
+                        -H "Content-Type: multipart/form-data" \
+                        -F "snapshot=@$snap_file" &>/dev/null \
+                        && ok "  restored collection: $coll_name" \
+                        || warn "  failed to restore collection: $coll_name"
+                done
+            else
+                warn "cannot reach Qdrant API — falling back to directory restore"
+                $cmd stop qdrant &>/dev/null
+                rm -rf "$SCRIPT_DIR/qdrant"
+                cp -r "$workdir/qdrant" "$SCRIPT_DIR/qdrant"
+            fi
+            $cmd stop qdrant &>/dev/null
+        else
+            # Directory-based restore
+            rm -rf "$SCRIPT_DIR/qdrant"
+            cp -r "$workdir/qdrant" "$SCRIPT_DIR/qdrant"
+            ok "done (directory restore)"
+        fi
+    fi
+
+    # --- Restore config ---
+    if [ -f "$workdir/ape.toml" ]; then
+        echo -n "  Restoring configuration... "
+        cp "$workdir/ape.toml" "$SCRIPT_DIR/ape.toml"
+        ok "done"
+    fi
+
+    # --- Clean up ---
+    rm -rf "$tmpdir"
+
+    # --- Restart ---
+    echo ""
+    read -rp "  Start services now? (Y/n): " start_now
+    if [[ "$(lower "$start_now")" != "n" ]]; then
+        echo ""
+        $cmd up -d
+        echo ""
+        ok "Restore complete — services starting!"
+    else
+        echo ""
+        ok "Restore complete. Start with: ./ape.sh start"
+    fi
+    echo ""
+}
+
+# ==========================================================================
 # Menu
 # ==========================================================================
 
@@ -772,6 +1202,7 @@ show_menu() {
     echo "  6) Status         - What's running right now?"
     echo "  7) New            - Create concept-space / collection / domain"
     echo "  8) List           - Show concept-spaces"
+    echo "  9) Backup         - Back up all data"
     echo "  0) Exit"
     echo ""
 }
@@ -791,6 +1222,8 @@ if [ $# -gt 0 ]; then
         status)  do_status ;;
         new)     shift; do_new "$@" ;;
         ls|list) do_list ;;
+        backup)  shift; do_backup "$@" ;;
+        restore) shift; do_restore "$@" ;;
         *)       echo "Unknown command: $1"; exit 1 ;;
     esac
     exit $?
@@ -811,8 +1244,9 @@ while true; do
         6) do_status ;;
         7) do_new ;;
         8) do_list ;;
+        9) do_backup ;;
         0) echo "  Bye!"; echo ""; exit 0 ;;
-        *) warn "Not a valid option. Try a number 0-8." ;;
+        *) warn "Not a valid option. Try a number 0-9." ;;
     esac
     echo ""
     read -rp "  Press Enter to go back to the menu..." _
