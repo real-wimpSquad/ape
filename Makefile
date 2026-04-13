@@ -5,7 +5,7 @@
 # Usage: make ADDONS="ollama code-thumbs"
 
 ADDONS ?=
-AVAILABLE_ADDONS := ollama code-thumbs
+AVAILABLE_ADDONS := caddy ollama code-thumbs
 
 # Build compose file list
 define build_compose_files
@@ -24,14 +24,15 @@ help:
 	@echo "Atomic Pumpkin - Production Deployment"
 	@echo ""
 	@echo "Quick Start:"
-	@echo "  make                              - Core stack only"
-	@echo "  make ADDONS=\"ollama\"               - Core + local LLMs"
-	@echo "  make ADDONS=\"ollama code-thumbs\"   - Core + local LLMs + code tools"
+	@echo "  make                              - Core stack only (ape on 127.0.0.1:8070)"
+	@echo "  make ADDONS=\"caddy\"                - Core + bundled TLS reverse proxy"
+	@echo "  make ADDONS=\"caddy ollama\"         - Core + TLS + local LLMs"
 	@echo ""
 	@echo "Core services (always on):"
-	@echo "  qdrant + ape + redis + caddy (TLS)"
+	@echo "  qdrant + ape + redis"
 	@echo ""
 	@echo "Available Addons:"
+	@echo "  caddy        - Bundled TLS reverse proxy (skip if you have ingress)"
 	@echo "  ollama       - Local LLM server (Llama, Qwen, etc.)"
 	@echo "  code-thumbs  - Multi-language formatter/linter"
 	@echo ""
@@ -51,7 +52,7 @@ help:
 start:
 	@$(call build_compose_files)
 	@echo "Starting Atomic Pumpkin (production images)..."
-	@echo "   Core: qdrant + ape + redis + caddy"
+	@echo "   Core: qdrant + ape + redis"
 	@if [ -n "$(ADDONS)" ]; then \
 		echo "   Addons: $(ADDONS)"; \
 	else \
@@ -63,7 +64,11 @@ start:
 	@echo "Services started"
 	@echo ""
 	@echo "Access points:"
-	@echo "  HTTPS (Caddy):  https://localhost/  (forwards to ape:8070)"
+	@if echo "$(ADDONS)" | grep -q "caddy"; then \
+		echo "  HTTPS (Caddy):  https://localhost/  (forwards to ape:8070)"; \
+	else \
+		echo "  APE Gateway:    http://127.0.0.1:8070  (point your ingress here)"; \
+	fi
 	@if echo "$(ADDONS)" | grep -q "ollama"; then \
 		echo "  Ollama:         http://localhost:11434"; \
 	fi

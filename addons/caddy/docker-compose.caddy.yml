@@ -1,0 +1,29 @@
+# Caddy Addon - Production (TLS reverse proxy in front of ape:8070)
+#
+# Use this addon when deploying on a bare rig where nothing else owns :80/:443.
+# If you already run an ingress (host nginx/caddy/traefik, k8s, Cloudflare Tunnel,
+# etc.), omit this addon and reverse-proxy your ingress to 127.0.0.1:8070 instead.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: ape_caddy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./addons/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+    depends_on:
+      ape:
+        condition: service_healthy
+    networks:
+      - atomic_pumpkin
+
+volumes:
+  caddy_data:
+
+networks:
+  atomic_pumpkin:

@@ -16,9 +16,15 @@
 
 # Production docker-compose using pre-built images from GitHub Container Registry
 # Usage: docker-compose -f docker-compose.prod.yml up -d
+#
+# Core stack: qdrant + ape + redis. APE listens on 127.0.0.1:8070 — point your
+# ingress (host nginx/caddy/traefik/k8s/Cloudflare Tunnel/etc) at it.
+#
+# For zero-config bundled TLS, enable the caddy addon:
+#   make ADDONS="caddy"
 
 services:
-  # Qdrant vector database (internal only in production)
+  # Qdrant vector database (internal only)
   qdrant:
     image: qdrant/qdrant:latest
     container_name: qdrant
@@ -32,37 +38,16 @@ services:
     networks:
       - atomic_pumpkin
 
-  # TLS reverse proxy — terminates HTTPS, forwards to APE gateway
-  # Place your certs in ./certs/ (tls.crt + tls.key) or use self-signed:
-  #   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  #     -keyout certs/tls.key -out certs/tls.crt -subj '/CN=ape.local'
-  caddy:
-    image: caddy:2-alpine
-    container_name: ape_caddy
-    restart: unless-stopped
-    ports:
-      - "443:443"
-      - "80:80"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./certs:/etc/caddy/certs:ro
-      - caddy_data:/data
-    depends_on:
-      ape:
-        condition: service_healthy
-    networks:
-      - atomic_pumpkin
-
   # APE Engine — single Rust binary serving Bridge, MCP, and Gateway
+  # Bound to 127.0.0.1 so it's reachable by a host-level ingress but not
+  # exposed publicly. Bundled Caddy addon reaches it over the docker network.
   ape:
     image: ghcr.io/real-wimpsquad/atomic-pumpkin/ape:stable
     container_name: ape
     restart: unless-stopped
     stop_grace_period: 35s
-    # No host ports exposed — Caddy handles external traffic
-    # Uncomment for direct access (debugging only):
-    # ports:
-    #   - "8070:8070"
+    ports:
+      - "127.0.0.1:8070:8070"
     environment:
       - RUST_LOG=ape=info
       - TOKIO_WORKER_THREADS=2
@@ -105,7 +90,6 @@ services:
 volumes:
   ape_data:
   redis_data:
-  caddy_data:
 
 networks:
   atomic_pumpkin:

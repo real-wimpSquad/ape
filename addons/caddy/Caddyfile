@@ -1,0 +1,33 @@
+# APE TLS reverse proxy
+#
+# For air-gapped / on-prem deployments with self-signed certs:
+#   1. Generate certs (run from the deploy directory):
+#      mkdir -p certs
+#      openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+#        -keyout certs/tls.key -out certs/tls.crt -subj '/CN=ape.local'
+#   2. Use the tls directive below pointing to your cert files.
+#
+# For internet-facing with auto HTTPS (Let's Encrypt):
+#   Replace the :443 block with your domain name:
+#     ape.yourdomain.com {
+#         reverse_proxy ape:8070
+#     }
+
+:443 {
+	tls /etc/caddy/certs/tls.crt /etc/caddy/certs/tls.key
+
+	# Gateway — main UI, auth, settings, LLM proxy
+	reverse_proxy ape:8070
+
+	# Security headers (Caddy adds many by default, these are extras)
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+}
+
+# HTTP → HTTPS redirect
+:80 {
+	redir https://{host}{uri} permanent
+}
