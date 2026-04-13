@@ -19,6 +19,7 @@ backups/
 !EASY_START.md
 !LICENSE
 !Makefile
+!Caddyfile
 
 # Track addon directories and their config files
 !addons/
