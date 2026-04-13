@@ -55,6 +55,7 @@ services:
     volumes:
       - ./ape.toml:/app/ape.toml:ro
       - ape_data:/app/data
+      - ./models:/models:ro
     depends_on:
       qdrant:
         condition: service_started
