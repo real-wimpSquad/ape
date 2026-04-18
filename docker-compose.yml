@@ -36,7 +36,7 @@ services:
     volumes:
       - ./qdrant:/qdrant/storage
     networks:
-      - atomic_pumpkin
+      - net
 
   # APE Engine — single Rust binary serving Bridge, MCP, and Gateway
   # Bound to 127.0.0.1 so it's reachable by a host-level ingress but not
@@ -62,7 +62,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - atomic_pumpkin
+      - net
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8070/health || exit 1"]
       start_period: 60s
@@ -81,7 +81,7 @@ services:
     # to redis://:yourpassword@redis:6379
     command: redis-server --appendonly yes --appendfsync everysec --save 60 1
     networks:
-      - atomic_pumpkin
+      - net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -93,5 +93,5 @@ volumes:
   redis_data:
 
 networks:
-  atomic_pumpkin:
+  net:
     driver: bridge

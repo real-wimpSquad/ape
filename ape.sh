@@ -459,10 +459,10 @@ services:
     volumes:
       - ./concepts/${name}/qdrant:/qdrant/storage
     networks:
-      - atomic_pumpkin
+      - net
 
 networks:
-  atomic_pumpkin:
+  net:
     driver: bridge
 EOF
     ok "Created concepts/$name/docker-compose.concept-${name}.yml"

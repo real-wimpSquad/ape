@@ -11,7 +11,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     networks:
-      - atomic_pumpkin
+      - net
     environment:
       # Memory management - adjust based on available system memory
       # OLLAMA_MAX_LOADED_MODELS: how many models to keep in memory simultaneously
@@ -42,4 +42,4 @@ volumes:
   ollama_data:
 
 networks:
-  atomic_pumpkin:
+  net:

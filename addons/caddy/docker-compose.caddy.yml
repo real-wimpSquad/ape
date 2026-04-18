@@ -20,10 +20,10 @@ services:
       ape:
         condition: service_healthy
     networks:
-      - atomic_pumpkin
+      - net
 
 volumes:
   caddy_data:
 
 networks:
-  atomic_pumpkin:
+  net:

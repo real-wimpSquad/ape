@@ -105,7 +105,7 @@ docker run --rm -v atomic-pumpkin_ollama_data:/data \
 
 ## Network
 
-Ollama joins the `atomic_pumpkin` network and is discoverable at:
+Ollama joins the `net` network (resolves to `ape_net` after compose project prefix) and is discoverable at:
 - From containers: `http://ollama:11434`
 - From host: `http://localhost:11434`
 
