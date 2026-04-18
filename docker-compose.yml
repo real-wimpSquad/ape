@@ -87,6 +87,59 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+    
+  # LiteLLM Proxy
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OLLAMA_API_BASE=http://host.docker.internal:11434
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    networks:
+      - atomic_pumpkin
+  
+  # Engine Orchestrator
+  engine-orchestrator:
+    image: ghcr.io/real-wimpsquad/atomic-pumpkin/engine-orchestrator:latest
+    build: ./engine-orchestrator
+    ports:
+      - "8068:8080"
+    environment:
+      - ENGINE_API_URL=http://engine:8069
+      - LITELLM_URL=http://litellm:4000
+      - SESSION_STORE=redis://redis:6379
+    depends_on:
+      - engine
+      - litellm
+      - redis
+    networks:
+      - atomic_pumpkin
+  
+  # Session storage
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+  
+  # Chat UI
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"
+    environment:
+      - OPENAI_API_BASE_URL=http://engine-orchestrator:8068/v1
+      - OPENAI_API_KEY=sk-atomic-pumpkin  # Dummy, validated by orchestrator
+    volumes:
+      - ./open-webui-data:/app/backend/data
+    depends_on:
+      - engine-orchestrator
+    networks:
+      - atomic_pumpkin
 
 volumes:
   ape_data:
