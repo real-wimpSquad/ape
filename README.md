@@ -65,10 +65,10 @@ Each space is automatically configured and composed into your deployment.
 
 ## Connecting to it
 
-APE binds to `127.0.0.1:8070`. Point your preferred ingress (nginx, Caddy, Traefik, Cloudflare Tunnel, k8s, etc.) at it. For zero-config bundled TLS, enable the Caddy addon:
+APE binds to `127.0.0.1:8070`. Point your preferred ingress (nginx, Caddy, Traefik, Cloudflare Tunnel, k8s, etc.) at it. For zero-config bundled TLS:
 
 ```bash
-make ADDONS="caddy"
+make caddy
 ```
 
 | What | Where |
