@@ -49,7 +49,12 @@ services:
     ports:
       - "127.0.0.1:8070:8070"
     environment:
-      - RUST_LOG=ape=info
+      # `audit=info` is NOT redundant with `ape=info` — EnvFilter matches
+      # on event target, and `target: "audit"` events are a distinct target
+      # that `ape=*` does not cover. Required for auth/OAuth/MCP audit
+      # events to reach the log stream (and thereby the SystemLogWriter
+      # sink for regulated-deployment retention).
+      - RUST_LOG=ape=info,audit=info
       - TOKIO_WORKER_THREADS=2
       - APE_CONFIG=/app/ape.toml
     volumes:
