@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
-title Atomic Pumpkin
+title APE
 color 07
 
 REM ============================================================================
-REM Atomic Pumpkin - Windows Launcher
+REM APE - Windows Launcher
 REM Just double-click this file. It handles the rest.
 REM ============================================================================
 
@@ -12,7 +12,7 @@ cd /d "%~dp0"
 
 echo.
 echo   ============================================
-echo     Atomic Pumpkin - Starting up...
+echo     APE - Starting up...
 echo   ============================================
 echo.
 
@@ -25,7 +25,7 @@ where wsl >nul 2>&1
 if errorlevel 1 (
     echo.
     echo   Hey! We need something called WSL (Windows Subsystem for Linux^)
-    echo   to run Atomic Pumpkin. It's a one-time install.
+    echo   to run APE. It's a one-time install.
     echo.
     echo   Don't worry, it's made by Microsoft and is perfectly safe.
     echo.

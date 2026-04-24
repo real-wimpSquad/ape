@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==========================================================================
-# Atomic Pumpkin — launcher
+# APE — launcher
 # Works in: WSL (via ape.bat), native Linux, macOS
 # ==========================================================================
 
@@ -317,7 +317,7 @@ compose_cmd() {
 
 do_start() {
     ensure_ape_toml
-    hdr "Starting Atomic Pumpkin..."
+    hdr "Starting APE..."
     echo ""
     local cmd
     cmd=$(compose_cmd)
@@ -1191,7 +1191,7 @@ do_restore() {
 show_menu() {
     echo ""
     echo -e "  ${B}============================================${N}"
-    echo -e "  ${B}  Atomic Pumpkin${N}"
+    echo -e "  ${B}  APE${N}"
     echo -e "  ${B}============================================${N}"
     echo ""
     echo "  1) Start          - Start everything"

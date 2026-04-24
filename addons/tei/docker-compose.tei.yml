@@ -1,0 +1,33 @@
+# TEI Addon — Production
+# GPU-accelerated (CUDA). Drop the `deploy:` block and switch the image tag
+# to `cpu-latest` for CPU-only hosts.
+
+services:
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:latest
+    container_name: ape_tei
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ${MODEL_DIR:-/srv/ape/models/glyph-embedder-v1/onnx}:/model:ro
+    command:
+      - --model-id=/model
+      - --port=80
+    networks:
+      - net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  net:

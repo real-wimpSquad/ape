@@ -1,6 +1,6 @@
 # Code Thumbs Addon
 
-**Multi-language code formatting, linting, and auto-fixing tools for Atomic Pumpkin.**
+**Multi-language code formatting, linting, and auto-fixing tools for APE.**
 
 This addon pulls pre-built images from [code-thumbs](https://github.com/real-wimpsquad/code-thumbs) - a standalone project that provides HTTP API for formatting, linting, and fixing code across 17+ languages.
 
@@ -9,7 +9,7 @@ This addon pulls pre-built images from [code-thumbs](https://github.com/real-wim
 Add code-thumbs to your stack using the ADDONS parameter:
 
 ```bash
-# From atomic-pumpkin root directory
+# From APE root directory
 make ADDONS="code-thumbs"                    # Production (pre-built :stable images)
 make dev ADDONS="code-thumbs"                # Development (pre-built :latest images)
 make ADDONS="apechat ollama code-thumbs"     # Full stack
@@ -30,7 +30,7 @@ This addon uses **pre-built images** from GitHub Container Registry:
 - `ghcr.io/real-wimpsquad/code-thumbs-api:stable` (production)
 - `ghcr.io/real-wimpsquad/code-thumbs-api:latest` (development)
 
-No local building required - images are pulled automatically. The atomic-pumpkin project root (`../..`) is mounted to `/workspace` in the containers for file operations.
+No local building required - images are pulled automatically. The APE project root (`../..`) is mounted to `/workspace` in the containers for file operations.
 
 ## 📚 API Overview
 
@@ -135,7 +135,7 @@ Code Thumbs supports **17 languages** with multiple tools per language:
 
 **Workflow:** `POST/format/file{path}→read+fmt+write_atomic` (1 call, auto-detect lang)
 
-**Paths:** Relative to atomic-pumpkin root (e.g., `src/api_server.py`, not `/workspace/src/api_server.py`)
+**Paths:** Relative to APE root (e.g., `src/api_server.py`, not `/workspace/src/api_server.py`)
 
 ```bash
 # Recommended: Atomic file operations
@@ -157,7 +157,7 @@ POST /check {"language":"typescript","content":"..."} # → fmt:clean|lint:err:2
 
 ```
 ┌─────────────────────────────────────┐
-│  Atomic Pumpkin Stack               │
+│  APE Stack                          │
 │                                     │
 │  ┌───────────────┐  ┌─────────────┐│
 │  │ Code Thumbs   │  │ Code Thumbs ││
