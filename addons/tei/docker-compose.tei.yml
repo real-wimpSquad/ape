@@ -1,10 +1,18 @@
-# TEI Addon — Production
-# GPU-accelerated (CUDA). Drop the `deploy:` block and switch the image tag
-# to `cpu-latest` for CPU-only hosts.
+# TEI Addon — Production (CPU)
+#
+# CPU-only by default: pulls the prebuilt `cpu-latest` image and omits
+# any GPU device reservations. Works on any host without the NVIDIA
+# container toolkit installed.
+#
+# For GPU hosts:
+#   - Switch the image tag below from `cpu-latest` to `latest` (CUDA).
+#   - Re-add a `deploy: resources: reservations: devices:` block
+#     reserving an nvidia device. Example in git history prior to the
+#     cpu-latest switch.
 
 services:
   tei:
-    image: ghcr.io/huggingface/text-embeddings-inference:latest
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest
     container_name: ape_tei
     restart: unless-stopped
     ports:
@@ -14,15 +22,17 @@ services:
     command:
       - --model-id=/model
       - --port=80
+      # TEI normally reads pooling strategy from `1_Pooling/config.json`
+      # in the model directory (HF sentence-transformers format). Bare
+      # ONNX exports don't ship that file, so we pass the strategy
+      # explicitly. Default is `mean` (most common for sentence embedders);
+      # set TEI_POOLING=cls or TEI_POOLING=splade if that's what your
+      # model was trained with. Match the training recipe, not the
+      # default — pooling mismatch produces semantically off vectors
+      # silently (same dim, wrong geometry).
+      - --pooling=${TEI_POOLING:-mean}
     networks:
       - net
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s
