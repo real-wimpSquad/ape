@@ -1,14 +1,39 @@
-# APE Configuration
-# Copy to ape.toml or set APE_CONFIG=/path/to/this/file
-
-# --- Installation -----------------------------------------------------------
+# APE — example first-boot config
+#
+# APE is DB-first. After first boot, all settings live in SQLite at
+# /app/data/ape.db and are edited via the Admin UI / API. This file is
+# imported once for bootstrap, then ignored. Copy to `ape.toml` to use.
 
 [installation]
+# Loopback-only Bridge API inside the container. Not published.
 port = 50051
-# database_url = "postgres://user:pass@localhost/ape"
+
+[services]
+redis_url        = "redis://redis:6379"
+ape_database_url = "sqlite:///app/data/ape.db?mode=rwc"
+
+[gateway]
+port = 8070
+# Model used to compress shelved turns. Routed through the configured provider.
+shelve_model = "anthropic/claude-haiku-4"
+
+# --- Providers ---------------------------------------------------------------
+
+[providers.anthropic]
+type    = "anthropic"
+api_url = "https://api.anthropic.com"
+
+[providers.openai]
+type    = "openai"
+api_url = "https://api.openai.com"
+
+# Local OpenAI-compatible server (LM Studio, vLLM, Ollama, etc.) on the host.
+[providers.local]
+type    = "openai"
+api_url = "http://host.docker.internal:1234"
 
 # --- Concept Spaces ----------------------------------------------------------
-# Each concept-space maps 1:1 to a Qdrant instance.
+# Each concept-space maps 1:1 to a Qdrant collection and an embedder.
 # Sessions bind to one space. Dimension is immutable after creation.
 
 [concept_spaces.default]
@@ -16,39 +41,22 @@ qdrant_url = "http://qdrant:6334"
 collection = "vdb"
 
 [concept_spaces.default.embedder]
-type = "local"
-model = "jina-embeddings-v2-base-code"
-dimension = 768
+# `server` — OpenAI-compatible /v1/embeddings sidecar (TEI, LM Studio, Infinity)
+type      = "server"
+model     = "text-embedding-glyph-embedder-v2"
+dimension = 256
+# url     = "http://host.docker.internal:8080"   # default points at the bundled embedder
 
-# Example: Ollama-backed concept-space (local LLM server)
-# [concept_spaces.experiments]
-# qdrant_url = "http://qdrant-experiments:6334"
-# collection = "experiments"
-#
-# [concept_spaces.experiments.embedder]
-# type = "ollama"
-# model = "nomic-embed-text"
-# dimension = 768
-# url = "http://host.docker.internal:11434"  # default, omit if standard
-
-# Example: API-backed concept-space (OpenAI, Cohere, Voyage, etc.)
+# Example: API-backed concept-space (OpenAI, Cohere, Voyage, Jina, …)
 # [concept_spaces.research]
-# qdrant_url = "http://qdrant-research:6334"
+# qdrant_url = "http://qdrant:6334"
 # collection = "research"
 #
 # [concept_spaces.research.embedder]
-# type = "api"
-# url = "https://api.openai.com/v1/embeddings"
-# model = "text-embedding-3-small"
-# dimension = 1536
-# api_key_env = "OPENAI_API_KEY"  # optional — omit for services without auth
+# type        = "api"
+# url         = "https://api.openai.com/v1/embeddings"
+# model       = "text-embedding-3-small"
+# dimension   = 1536
+# api_key_env = "OPENAI_API_KEY"
 
-# Which space new sessions bind to by default
 default_space = "default"
-
-# --- Services ----------------------------------------------------------------
-
-[services]
-ape_core_url = "http://ape-core:8069"
-litellm_url = "http://litellm:4000"
-litellm_key_env = "LITELLM_MASTER_KEY"
