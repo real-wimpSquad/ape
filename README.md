@@ -3,6 +3,7 @@
 **A persistent, queryable memory substrate for AI agents. Self-hosted. Hybrid vector + graph. MCP-native.**
 
 *Patent Pending*
+### APE is in active development. We will work to keep this document up-to-date but it may not be 100% right 100% of the time.
 
 APE gives stateless LLM agents persistent, shared memory they can carry across sessions, models, and vendors. Prose goes in, gets translated into *glyph* — a dense operator notation — and stored as a graph. Agents query it back in under a second and stop starting from scratch.
 
